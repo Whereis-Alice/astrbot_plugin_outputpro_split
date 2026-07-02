@@ -84,7 +84,9 @@ class TTSStep(BaseStep):
             os.makedirs(temp_dir, exist_ok=True)
             parsed = urlparse(audio_url)
             suffix = os.path.splitext(parsed.path)[1] or ".audio"
-            raw_path = os.path.join(temp_dir, f"outputpro_relay_{uuid.uuid4().hex}{suffix}")
+            raw_path = os.path.join(
+                temp_dir, f"outputpro_split_relay_{uuid.uuid4().hex}{suffix}"
+            )
             await download_file(audio_url, raw_path)
 
             with open(raw_path, "rb") as f:
@@ -105,13 +107,15 @@ class TTSStep(BaseStep):
                     raw_bytes = f.read()
                 if raw_bytes and raw_bytes[0] in (0x02, 0x03) and b"#!SILK" in raw_bytes[:16]:
                     normalized_silk = bytes([0x02]) + raw_bytes[1:]
-                    silk_path = str(Path(temp_dir) / f"outputpro_relay_{uuid.uuid4().hex}.silk")
+                    silk_path = str(
+                        Path(temp_dir) / f"outputpro_split_relay_{uuid.uuid4().hex}.silk"
+                    )
                     with open(silk_path, "wb") as f:
                         f.write(normalized_silk)
                     normalized_input = silk_path
 
                 wav_path = os.path.join(
-                    temp_dir, f"outputpro_relay_{uuid.uuid4().hex}.wav"
+                    temp_dir, f"outputpro_split_relay_{uuid.uuid4().hex}.wav"
                 )
                 await tencent_silk_to_wav(normalized_input, wav_path)
                 normalized_input = wav_path

@@ -98,7 +98,7 @@
                 "hint": "可在文件中维护金句。支持相对路径与绝对路径，请使用 / 作为路径分隔符。可填写多个路径，系统会与默认金句合并后随机抽取",
                 "type": "list",
                 "default": [
-                    "data/plugins/astrbot_plugin_outputpro/default_quotes.json"
+                    "data/plugins/astrbot_plugin_outputpro_split/default_quotes.json"
                 ]
             }
         }
@@ -458,7 +458,7 @@
                 "description": "Pillowmd 样式目录",
                 "hint": "支持相对路径与绝对路径，请使用 / 作为路径分隔符",
                 "type": "string",
-                "default": "data/plugins/astrbot_plugin_outputpro/t2i_style"
+                "default": "data/plugins/astrbot_plugin_outputpro_split/t2i_style"
             },
             "auto_page": {
                 "description": "自动分页",
@@ -555,38 +555,183 @@
         "hint": "将一条长消息按智能分段逻辑拆分为多段后依次发送",
         "type": "object",
         "items": {
-            "max_length": {
-                "description": "分段字数上限",
-                "hint": "消息字数超过该值时不进行分段；设为 0 表示不限制",
+            "min_length": {
+                "description": "最短触发字数",
+                "hint": "文本少于该字数时不分段；填 0 关闭。",
                 "type": "int",
+                "default": 0
+            },
+            "max_length": {
+                "description": "最长处理字数",
+                "hint": "文本超过该字数时直接跳过分段；填 0 关闭。",
+                "type": "int",
+                "default": 300,
                 "slider": {
                     "min": 0,
                     "max": 600,
                     "step": 1
-                },
-                "default": 200
+                }
             },
             "max_count": {
-                "description": "最大分段数",
-                "hint": "此处设定每句消息最多可以分成多少段话来发送",
+                "description": "最大段数",
                 "type": "int",
+                "default": 5,
                 "slider": {
                     "min": 1,
-                    "max": 5,
+                    "max": 10,
                     "step": 1
-                },
-                "default": 2
+                }
+            },
+            "split_mode": {
+                "description": "分段模式",
+                "hint": "Regex 用正则匹配；Simple 用指定文本列表匹配。",
+                "type": "string",
+                "options": [
+                    "regex",
+                    "simple"
+                ],
+                "default": "regex"
             },
             "char_list": {
-                "description": "触发分段的字符",
-                "hint": "文字后面带这些符号就会分段，优先采用排在前面的分段符来分段。分段符示例：。？！\\n \\s（换行是\\n，空格是\\s）。注意：括号/引号等成对符号内部不会触发分段",
+                "description": "简单分隔符",
+                "hint": "Simple 模式使用。支持完整字符串，如 `< -- >`；换行写 `\\n`。",
                 "type": "list",
                 "default": [
                     "。",
                     "？",
-                    "\\n",
-                    "，"
+                    "！",
+                    "?",
+                    "!",
+                    "；",
+                    ";",
+                    "\n"
                 ]
+            },
+            "split_regex": {
+                "description": "正则分隔式",
+                "hint": "Regex 模式使用，支持高级正则。",
+                "type": "string",
+                "default": "[。？！?!\\n…]+"
+            },
+            "enable_smart_split": {
+                "description": "智能识别",
+                "hint": "尽量避免在引号、成对符号内部切分。",
+                "type": "bool",
+                "default": true
+            },
+            "balanced_split_mode": {
+                "description": "智能均分",
+                "hint": "按总字数和段数尽量均匀分配每段长度。",
+                "type": "bool",
+                "default": true
+            },
+            "min_segment_length": {
+                "description": "最小段长",
+                "hint": "均分模式下避免切出过短碎片。",
+                "type": "int",
+                "default": 8,
+                "slider": {
+                    "min": 0,
+                    "max": 100,
+                    "step": 1
+                }
+            },
+            "balanced_split_ratio_min": {
+                "description": "均分下限比",
+                "hint": "低于理想长度该比例时不切分。",
+                "type": "float",
+                "default": 0.4
+            },
+            "balanced_split_ratio_max": {
+                "description": "均分上限比",
+                "hint": "高于理想长度该比例时尝试次级标点切分。",
+                "type": "float",
+                "default": 0.9
+            },
+            "clean_before_items": {
+                "description": "前置清理文本",
+                "hint": "Simple 模式下，在分段前直接删除这些文本。",
+                "type": "list",
+                "default": []
+            },
+            "clean_before_regex": {
+                "description": "前置清理正则",
+                "hint": "Regex 模式下，在分段前执行正则清理。",
+                "type": "string",
+                "default": ""
+            },
+            "clean_after_items": {
+                "description": "后置清理文本",
+                "hint": "Simple 模式下，在分段后逐段删除这些文本。",
+                "type": "list",
+                "default": []
+            },
+            "clean_after_regex": {
+                "description": "后置清理正则",
+                "hint": "Regex 模式下，在分段后逐段执行正则清理。",
+                "type": "string",
+                "default": ""
+            },
+            "image_strategy": {
+                "description": "图片策略",
+                "hint": "图片如何跟随上下文或单独发送。",
+                "type": "string",
+                "options": [
+                    "单独",
+                    "跟随下段",
+                    "跟随上段",
+                    "嵌入"
+                ],
+                "default": "单独"
+            },
+            "at_strategy": {
+                "description": "At 策略",
+                "hint": "At 组件的分段归属方式。",
+                "type": "string",
+                "options": [
+                    "单独",
+                    "跟随下段",
+                    "跟随上段",
+                    "嵌入"
+                ],
+                "default": "跟随下段"
+            },
+            "face_strategy": {
+                "description": "表情策略",
+                "hint": "表情组件的分段归属方式。",
+                "type": "string",
+                "options": [
+                    "单独",
+                    "跟随下段",
+                    "跟随上段",
+                    "嵌入"
+                ],
+                "default": "嵌入"
+            },
+            "other_media_strategy": {
+                "description": "其他组件策略",
+                "hint": "未知组件的分段归属方式。",
+                "type": "string",
+                "options": [
+                    "单独",
+                    "跟随下段",
+                    "跟随上段",
+                    "嵌入"
+                ],
+                "default": "跟随下段"
+            },
+            "delay_strategy": {
+                "description": "延迟策略",
+                "hint": "Linear 线性；Log 对数；Random 随机；Fixed 固定。",
+                "type": "string",
+                "options": [
+                    "legacy",
+                    "linear",
+                    "log",
+                    "random",
+                    "fixed"
+                ],
+                "default": "legacy"
             },
             "per_char_delay": {
                 "description": "打字速度",
@@ -605,9 +750,50 @@
                 "type": "string",
                 "default": "1~16"
             },
+            "linear_base": {
+                "description": "线性基础值",
+                "type": "float",
+                "default": 0.5
+            },
+            "linear_factor": {
+                "description": "线性字数系数",
+                "type": "float",
+                "default": 0.1
+            },
+            "log_base": {
+                "description": "对数基础值",
+                "type": "float",
+                "default": 0.5
+            },
+            "log_factor": {
+                "description": "对数系数",
+                "type": "float",
+                "default": 0.8
+            },
+            "random_min": {
+                "description": "随机最小值",
+                "type": "float",
+                "default": 1.0
+            },
+            "random_max": {
+                "description": "随机最大值",
+                "type": "float",
+                "default": 3.0
+            },
+            "fixed_delay": {
+                "description": "固定延迟值",
+                "type": "float",
+                "default": 1.5
+            },
             "show_typing": {
                 "description": "显示正在输入中",
                 "hint": "开启后，打字时会显示“正在输入中...”的状态。仅支持 aiocqhttp、telegram、weixin_oc 消息平台, 其他平台无效",
+                "type": "bool",
+                "default": true
+            },
+            "trim_segment_edge_blank_lines": {
+                "description": "清理首尾空行",
+                "hint": "仅清理每段两端空行，不影响段内换行。",
                 "type": "bool",
                 "default": true
             },

@@ -281,7 +281,7 @@ class ChineseTypoGenerator:
             if hasattr(self, key):
                 setattr(self, key, value)
             else:
-                logger.warning(f"[OutputProTypo] 未知参数: {key}")
+                logger.warning(f"[OutputProSplitTypo] 未知参数: {key}")
 
 
 class TypoStep(BaseStep):

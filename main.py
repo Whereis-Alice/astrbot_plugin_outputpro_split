@@ -8,7 +8,7 @@ from .core.model import OutContext, StateManager, StepName
 from .core.pipeline import Pipeline
 
 
-class OutputPlugin(Star):
+class OutputProSplitPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.cfg = PluginConfig(config, context)

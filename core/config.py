@@ -194,15 +194,69 @@ class RecallConfig(ConfigNode):
 
 class SplitConfig(ConfigNode):
     max_length: int
+    min_length: int
     char_list: list[str]
+    split_regex: str
+    split_mode: str
+    enable_smart_split: bool
+    balanced_split_mode: bool
     max_count: int
+    min_segment_length: int
+    balanced_split_ratio_min: float
+    balanced_split_ratio_max: float
     per_char_delay: float
     delay_scope_str: str
+    delay_strategy: str
+    linear_base: float
+    linear_factor: float
+    log_base: float
+    log_factor: float
+    random_min: float
+    random_max: float
+    fixed_delay: float
     show_typing: bool
     tail_punc: list[str]
+    trim_segment_edge_blank_lines: bool
+    clean_before_items: list[str]
+    clean_after_items: list[str]
+    clean_before_regex: str
+    clean_after_regex: str
+    image_strategy: str
+    at_strategy: str
+    face_strategy: str
+    other_media_strategy: str
+
+    _DEFAULTS = {
+        "min_length": 0,
+        "split_mode": "simple",
+        "split_regex": r"[。？！?!\n…]+",
+        "enable_smart_split": True,
+        "balanced_split_mode": True,
+        "min_segment_length": 8,
+        "balanced_split_ratio_min": 0.4,
+        "balanced_split_ratio_max": 0.9,
+        "delay_strategy": "legacy",
+        "linear_base": 0.5,
+        "linear_factor": 0.1,
+        "log_base": 0.5,
+        "log_factor": 0.8,
+        "random_min": 1.0,
+        "random_max": 3.0,
+        "fixed_delay": 1.5,
+        "trim_segment_edge_blank_lines": True,
+        "clean_before_items": [],
+        "clean_after_items": [],
+        "clean_before_regex": "",
+        "clean_after_regex": "",
+        "image_strategy": "单独",
+        "at_strategy": "跟随下段",
+        "face_strategy": "嵌入",
+        "other_media_strategy": "跟随下段",
+    }
 
     def __init__(self, data: MutableMapping[str, Any]):
         super().__init__(data)
+        self._apply_defaults()
         # 编译好的拆分正则
         self._split_pattern = self._build_split_pattern()
         self.split_re = re.compile(self._split_pattern)
@@ -213,6 +267,8 @@ class SplitConfig(ConfigNode):
             self.tail_punc_re = re.compile(f"[{chars}]+$")
         else:
             self.tail_punc_re = None
+        self.clean_before_re = self._compile_optional_regex(self.clean_before_regex)
+        self.clean_after_re = self._compile_optional_regex(self.clean_after_regex)
         # 停顿时间范围
         try:
             self.min_delay, self.max_delay = map(
@@ -221,18 +277,30 @@ class SplitConfig(ConfigNode):
         except Exception:
             self.min_delay, self.max_delay = 1, 20
 
+    def _apply_defaults(self) -> None:
+        for key, value in self._DEFAULTS.items():
+            if getattr(self, key, None) is not None:
+                continue
+            if isinstance(value, list):
+                value = list(value)
+            setattr(self, key, value)
+
     def _build_split_pattern(self) -> str:
+        if self.split_mode == "regex":
+            return self.split_regex or r"(?!x)x"
         if not self.char_list:
             return r"(?!x)x"
         tokens: list[str] = []
         for ch in self.char_list:
             if ch in ("\\n", "\n"):
-                tokens.append("\n")
+                tokens.append(r"\n")
+            elif ch == "\\t":
+                tokens.append(r"\t")
             elif ch == "\\s":
                 tokens.append(r"\s")
             else:
                 tokens.append(re.escape(ch))
-        return f"[{''.join(tokens)}]+"
+        return f"(?:{'|'.join(tokens)})+"
 
     def _build_split_priority(self) -> dict[str, int]:
         priority: dict[str, int] = {}
@@ -244,6 +312,16 @@ class SplitConfig(ConfigNode):
             else:
                 priority.setdefault(ch, idx)
         return priority
+
+    @staticmethod
+    def _compile_optional_regex(pattern: str) -> re.Pattern[str] | None:
+        if not pattern:
+            return None
+        try:
+            return re.compile(pattern, flags=re.DOTALL)
+        except re.error as exc:
+            logger.warning(f"[SplitConfig] 正则编译失败，已忽略：{pattern} ({exc})")
+            return None
 
 
 class TypoConfig(ConfigNode):
@@ -269,7 +347,7 @@ class PluginConfig(ConfigNode):
     recall: RecallConfig
     split: SplitConfig
 
-    _plugin_name: str = "astrbot_plugin_outputpro"
+    _plugin_name: str = "astrbot_plugin_outputpro_split"
 
     def __init__(self, cfg: AstrBotConfig, context: Context):
         super().__init__(cfg)

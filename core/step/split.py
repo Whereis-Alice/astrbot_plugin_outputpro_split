@@ -36,6 +36,11 @@ STRATEGY_ALIASES = {
     "inline": "inline",
 }
 
+STEALER_IMAGE_MARKERS = (
+    "astrbot_plugin_stealer",
+    "plugin_stealer",
+)
+
 
 @dataclass
 class Segment:
@@ -555,11 +560,29 @@ class SplitStep(BaseStep):
     def _normalize_strategy(self, value: str | None, default: str) -> str:
         return STRATEGY_ALIASES.get(str(value or "").strip(), default)
 
+    @staticmethod
+    def _component_text_sources(comp: BaseMessageComponent) -> list[str]:
+        sources: list[str] = []
+        for attr in ("file", "url", "path"):
+            value = getattr(comp, attr, None)
+            if value:
+                sources.append(str(value))
+        return sources
+
+    def _is_stealer_emoji_image(self, comp: Image) -> bool:
+        for source in self._component_text_sources(comp):
+            normalized = source.replace("\\", "/").lower()
+            if any(marker in normalized for marker in STEALER_IMAGE_MARKERS):
+                return True
+        return False
+
     def _component_strategy(self, comp: BaseMessageComponent) -> str:
         if isinstance(comp, Reply):
             return "follow_next"
         if isinstance(comp, At):
             return self._normalize_strategy(self.cfg.at_strategy, "follow_next")
+        if isinstance(comp, Image) and self._is_stealer_emoji_image(comp):
+            return self._normalize_strategy(self.cfg.face_strategy, "inline")
         if isinstance(comp, Image):
             return self._normalize_strategy(self.cfg.image_strategy, "standalone")
         if isinstance(comp, Face):

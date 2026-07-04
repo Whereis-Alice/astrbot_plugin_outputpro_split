@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## v2.3.1
+
+新增特性：
+
+- 基于 `astrbot_plugin_splitter` 优化分段回复模块，新增代码块、`<think>`、括号、引号与颜文字保护。
+- 新增分段组件策略，支持图片、At、表情和其他组件按“单独 / 跟随下段 / 跟随上段 / 嵌入”归属到分段。
+- 表情策略适配 `astrbot_plugin_stealer`：来自 stealer 数据路径的图片会按表情策略处理，而不是按普通图片策略处理。
+- 新增 `legacy` 延迟策略，保留 OutputPro 原有按字符模拟打字的延迟算法。
+
+优化：
+
+- 在配置说明中补充 `legacy`、`linear`、`log`、`random`、`fixed` 各延迟策略含义。
+- 将 fork 插件标识独立为 `astrbot_plugin_outputpro_split`，避免与上游 `astrbot_plugin_outputpro` 冲突。
+- 将版本号调整为正常发布格式 `v2.3.1`。
+
 ## v2.2.4
 
 优化：

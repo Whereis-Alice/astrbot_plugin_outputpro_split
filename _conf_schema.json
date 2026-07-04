@@ -698,7 +698,7 @@
             },
             "face_strategy": {
                 "description": "表情策略",
-                "hint": "表情组件的分段归属方式。",
+                "hint": "表情组件的分段归属方式。来自 astrbot_plugin_stealer 数据路径的图片也会按此策略处理。",
                 "type": "string",
                 "options": [
                     "单独",
@@ -722,7 +722,7 @@
             },
             "delay_strategy": {
                 "description": "延迟策略",
-                "hint": "Linear 线性；Log 对数；Random 随机；Fixed 固定。",
+                "hint": "Legacy 沿用 OutputPro 原字速算法；Linear 线性；Log 对数；Random 随机；Fixed 固定。",
                 "type": "string",
                 "options": [
                     "legacy",

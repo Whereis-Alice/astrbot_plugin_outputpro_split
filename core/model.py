@@ -1,5 +1,5 @@
 from collections import OrderedDict, deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
@@ -47,6 +47,7 @@ class OutContext:
     bid: str
     group: GroupState
     timestamp: int
+    followup_chains: list[list[BaseMessageComponent]] = field(default_factory=list)
 
 
 

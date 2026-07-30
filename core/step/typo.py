@@ -318,23 +318,32 @@ class TypoStep(BaseStep):
         pipeline_cfg = self.plugin_config.pipeline
         if not pipeline_cfg.is_enabled_step(StepName.SPLIT):
             return False
+        if not pipeline_cfg.lock_order:
+            step_names = pipeline_cfg._steps
+            try:
+                if step_names.index(StepName.SPLIT) <= step_names.index(StepName.TYPO):
+                    return False
+            except ValueError:
+                return False
         if pipeline_cfg.is_llm_step(StepName.SPLIT) and not ctx.is_llm:
             return False
         if not self._split_platform_supported(ctx):
             return False
         split_cfg = self.plugin_config.split
+        text_length = self._get_chain_text_length(chain)
+        min_length = int(getattr(split_cfg, "min_length", 0) or 0)
+        if min_length > 0 and text_length < min_length:
+            return False
         max_length = int(getattr(split_cfg, "max_length", 0) or 0)
-        if max_length > 0 and self._get_chain_text_length(chain) > max_length:
+        if max_length > 0 and text_length > max_length:
             return False
         return True
 
     def _split_will_run_for_context(self, ctx: OutContext) -> bool:
         return self._split_will_run_for_chain(ctx, ctx.chain)
 
-    def _resolve_append_separator(self, ctx: OutContext) -> str | None:
-        if not self._split_will_run_for_context(ctx):
-            return None
-        return "\n"
+    def _can_append_correction(self, ctx: OutContext) -> bool:
+        return self._split_will_run_for_context(ctx)
 
 
     @staticmethod
@@ -346,11 +355,14 @@ class TypoStep(BaseStep):
         ctx: OutContext,
         target_seg: Plain,
         replacement_text: str,
+        correction_text: str | None = None,
     ) -> list[BaseMessageComponent]:
         preview_chain: list[BaseMessageComponent] = []
         for comp in ctx.chain:
             if comp is target_seg:
                 preview_chain.append(Plain(replacement_text))
+                if correction_text:
+                    preview_chain.append(Plain(correction_text))
             elif isinstance(comp, Plain):
                 preview_chain.append(Plain(comp.text))
             else:
@@ -364,35 +376,22 @@ class TypoStep(BaseStep):
         *,
         typoed_text: str,
         correction_text: str,
-        append_separator: str | None,
+        can_append_correction: bool,
     ) -> bool:
-        if not append_separator or not correction_text:
+        if not can_append_correction or not correction_text:
             return False
 
-        preview_text = append_separator.join([typoed_text, correction_text])
-        preview_chain = self._build_preview_chain(ctx, target_seg, preview_text)
-        if not self._split_will_run_for_chain(ctx, preview_chain):
-            return False
-
-        from .split import SplitStep
-
-        split_step = SplitStep(self.plugin_config)
-        preview_segments = split_step._split_chain(preview_chain)
-        if len(preview_segments) <= 1:
-            return False
-
-        correction_text = correction_text.strip()
-        for seg in preview_segments[1:]:
-            seg_text = "".join(
-                comp.text for comp in seg.components if isinstance(comp, Plain)
-            ).strip()
-            if seg_text == correction_text:
-                return True
-        return False
+        preview_chain = self._build_preview_chain(
+            ctx,
+            target_seg,
+            typoed_text,
+            correction_text.strip(),
+        )
+        return self._split_will_run_for_chain(ctx, preview_chain)
 
     async def handle(self, ctx: OutContext) -> StepResult:
         replacement_summaries: list[str] = []
-        append_separator = self._resolve_append_separator(ctx)
+        can_append_correction = self._can_append_correction(ctx)
         generator = self._get_typo_generator()
 
         for seg in ctx.chain:
@@ -402,18 +401,16 @@ class TypoStep(BaseStep):
                 continue
 
             typoed_text, typo_corrections, replacements = generator.create_typo_sentence(seg.text)
-            processed_parts = [typoed_text]
             if typo_corrections and random.random() < self.cfg.correction_append_prob:
                 if self._should_append_correction(
                     ctx,
                     seg,
                     typoed_text=typoed_text,
                     correction_text=typo_corrections,
-                    append_separator=append_separator,
+                    can_append_correction=can_append_correction,
                 ):
-                    processed_parts.append(typo_corrections)
-            separator = append_separator or ""
-            new_text = separator.join(part for part in processed_parts if part)
+                    ctx.followup_chains.append([Plain(typo_corrections.strip())])
+            new_text = typoed_text
             if new_text and new_text != seg.text:
                 seg.text = new_text
                 replacement_summaries.extend(

@@ -195,6 +195,10 @@ class TextTokenizer:
             priority = min(priority, self.split_priority.get(ch, 10**9))
         return priority
 
+    def _has_closing_pair(self, text: str, start: int, opener: str) -> bool:
+        closer = self.pair_map.get(opener)
+        return bool(closer and text.find(closer, start + 1) != -1)
+
     @staticmethod
     def _ascii_inline_delimiter(text: str, start: int, delim: str) -> bool:
         if "\n" in delim or "\r" in delim:
@@ -255,7 +259,7 @@ class TextTokenizer:
             if self.smart_split and ch in self.quote_chars:
                 if stack and stack[-1] == ch:
                     stack.pop()
-                else:
+                elif text.find(ch, i + 1) != -1:
                     stack.append(ch)
                 buf += ch
                 i += 1
@@ -265,14 +269,16 @@ class TextTokenizer:
                 expected = self.pair_map.get(stack[-1])
                 if ch == expected:
                     stack.pop()
-                elif is_opener:
+                elif is_opener and self._has_closing_pair(text, i, ch):
                     stack.append(ch)
                 buf += ch
                 i += 1
                 continue
 
             if self.smart_split and is_opener:
-                stack.append(ch)
+                # An unmatched LLM opener must not swallow all following text.
+                if self._has_closing_pair(text, i, ch):
+                    stack.append(ch)
                 buf += ch
                 i += 1
                 continue

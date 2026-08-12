@@ -1,3 +1,4 @@
+from astrbot.api import logger
 from astrbot.api.event import filter
 from astrbot.api.star import Context, Star
 from astrbot.core import AstrBotConfig
@@ -16,8 +17,12 @@ class OutputProSplitPlugin(Star):
 
     async def initialize(self):
         await self.pipeline.initialize()
+        if bool(getattr(self.cfg.pipeline, "debug_logging", False)):
+            logger.info("[OutputProSplit][Trace] 插件已初始化，详细诊断日志已开启")
 
     async def terminate(self):
+        if bool(getattr(self.cfg.pipeline, "debug_logging", False)):
+            logger.info("[OutputProSplit][Trace] 插件正在终止")
         await self.pipeline.terminate()
 
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE, priority=1000)
@@ -42,7 +47,14 @@ class OutputProSplitPlugin(Star):
     async def on_decorating_result(self, event: AstrMessageEvent):
         """发送消息前"""
         result = event.get_result()
-        if not result or not result.chain:
+        debug_logging = bool(getattr(self.cfg.pipeline, "debug_logging", False))
+        if not result:
+            if debug_logging:
+                logger.info("[OutputProSplit][Trace] 跳过结果装饰: event 没有 result")
+            return
+        if not result.chain:
+            if debug_logging:
+                logger.info("[OutputProSplit][Trace] 跳过结果装饰: result.chain 为空")
             return
 
         ctx = OutContext(

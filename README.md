@@ -59,6 +59,12 @@ OutputPro Split 是一个 AstrBot 输出增强插件 fork。它保留 OutputPro 
 - 想更像 splitter 的均衡效果，保持 `split.balanced_split_mode = true`。
 - 想让错字纠正提示单独成为下一条消息，确保 `typo` 在 `split` 前执行且 `split` 已启用。
 
+## 诊断日志
+
+排查配置未生效时，可临时开启 `pipeline.debug_logging`。插件会在 AstrBot 后台以 INFO 级别记录每个管道步骤，以及文本清理的阈值、正则、命中内容和清理前后预览。日志可能包含回复正文，问题确认后建议关闭。
+
+文本清理仅处理长度小于 `clean.text_threshold` 的文本。默认阈值为 `150`，长回复即使正则正确也会跳过；开启诊断日志后会明确显示 `len >= threshold`。
+
 ## 致谢
 
 感谢 `Zhalslar/astrbot_plugin_outputpro` 提供完整输出增强管道，感谢 `nuomicici/astrbot_plugin_splitter` 提供更细致的分段体验设计。

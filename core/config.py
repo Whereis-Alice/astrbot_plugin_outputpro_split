@@ -109,10 +109,12 @@ class ConfigNode:
 
 class PipelineConfig(ConfigNode):
     lock_order: bool
+    debug_logging: bool
     steps: list[str]
     llm_steps: list[str]
 
     def __init__(self, data: MutableMapping[str, Any]):
+        data.setdefault("debug_logging", False)
         super().__init__(data)
         self._steps = [name.split("(", 1)[0].strip() for name in self.steps]
         self._llm_steps = [name.split("(", 1)[0].strip() for name in self.llm_steps]

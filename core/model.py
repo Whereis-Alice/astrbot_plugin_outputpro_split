@@ -3,10 +3,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
-
 from astrbot.core.message.components import BaseMessageComponent
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
+from pydantic import BaseModel, Field
+
+REPLY_EVENT_SEQUENCE_EXTRA = "_outputpro_split_reply_event_sequence"
 
 
 class GroupState(BaseModel):
@@ -14,12 +15,29 @@ class GroupState(BaseModel):
     """群号"""
     bot_msgs: deque = Field(default_factory=lambda: deque(maxlen=5))
     """Bot消息缓存"""
-    msg_queue: deque[str] = Field(default_factory=lambda: deque(maxlen=10))
-    """用户消息缓存"""
-    last_reply_mark_msg_id: str | None = None
-    """最近一次追加 bot 插嘴标记对应的消息 ID（用于去重）"""
+    msg_queue: deque[str] = Field(default_factory=lambda: deque(maxlen=20))
+    """最近的用户消息 ID，仅用于诊断和兼容回退判断"""
+    reply_message_seq: int = 0
+    """群内用户消息序号，用于跨并发回复计算插嘴数量"""
+    reply_handled_msg_ids: deque[str] = Field(
+        default_factory=lambda: deque(maxlen=20),
+    )
+    """已经插入引用的原消息 ID，避免同一事件重复引用"""
     name_to_qq: OrderedDict[str, str] = Field(default_factory=lambda: OrderedDict())
     """昵称 -> QQ"""
+
+    def record_reply_message(self, msg_id: str) -> int:
+        """记录一条用户消息并返回其序号。"""
+        self.reply_message_seq += 1
+        self.msg_queue.append(msg_id)
+        return self.reply_message_seq
+
+    def mark_reply_handled(self, msg_id: str) -> bool:
+        """标记消息已引用；返回 False 表示此前已经处理过。"""
+        if msg_id in self.reply_handled_msg_ids:
+            return False
+        self.reply_handled_msg_ids.append(msg_id)
+        return True
 
 
 class StateManager:

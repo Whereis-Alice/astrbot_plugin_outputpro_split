@@ -65,6 +65,8 @@ OutputPro Split 是一个 AstrBot 输出增强插件 fork。它保留 OutputPro 
 
 文本清理仅处理长度小于 `clean.text_threshold` 的文本。默认阈值为 `150`，长回复即使正则正确也会跳过；开启诊断日志后会明确显示 `len >= threshold`。
 
+智能引用的判断以每个群消息事件自身记录的序号为锚点，统计该消息之后、当前 Bot 回复准备发送前到达的用户消息数量。这样多个 LLM 回复同时处理时不会互相消费引用队列。开启诊断日志后，可在后台看到 `anchor_seq`、`latest_seq`、`pushed`、阈值、队列和具体的触发或跳过原因。
+
 ## 致谢
 
 感谢 `Zhalslar/astrbot_plugin_outputpro` 提供完整输出增强管道，感谢 `nuomicici/astrbot_plugin_splitter` 提供更细致的分段体验设计。

@@ -5,7 +5,12 @@ from astrbot.core import AstrBotConfig
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 
 from .core.config import PluginConfig
-from .core.model import OutContext, StateManager, StepName
+from .core.model import (
+    REPLY_EVENT_SEQUENCE_EXTRA,
+    OutContext,
+    StateManager,
+    StepName,
+)
 from .core.pipeline import Pipeline
 
 
@@ -34,8 +39,41 @@ class OutputProSplitPlugin(Star):
 
         g = StateManager.get_group(gid)
 
-        if self.cfg.reply.threshold > 0 and sender_id != self_id:
-            g.msg_queue.append(event.message_obj.message_id)
+        debug_logging = bool(getattr(self.cfg.pipeline, "debug_logging", False))
+        if (
+            self.cfg.reply.threshold > 0
+            and str(sender_id) != str(self_id)
+        ):
+            raw_msg_id = getattr(event.message_obj, "message_id", None)
+            msg_id = "" if raw_msg_id is None else str(raw_msg_id)
+            if msg_id:
+                # 序号写入事件本身，避免并发 LLM 回复互相消费共享队列。
+                sequence = event.get_extra(REPLY_EVENT_SEQUENCE_EXTRA)
+                if not isinstance(sequence, int):
+                    sequence = g.record_reply_message(msg_id)
+                    event.set_extra(REPLY_EVENT_SEQUENCE_EXTRA, sequence)
+                if debug_logging:
+                    logger.info(
+                        "[OutputProSplit][Reply] 记录用户消息: gid=%s, msg_id=%s, "
+                        "seq=%s, latest=%s, queue=%s",
+                        gid,
+                        msg_id,
+                        sequence,
+                        g.reply_message_seq,
+                        list(g.msg_queue),
+                    )
+            elif debug_logging:
+                logger.info(
+                    "[OutputProSplit][Reply] 未记录用户消息: message_id 为空, gid=%s",
+                    gid,
+                )
+        elif debug_logging and self.cfg.reply.threshold > 0:
+            logger.info(
+                "[OutputProSplit][Reply] 跳过消息记录: gid=%s, sender=%s, self=%s",
+                gid,
+                sender_id,
+                self_id,
+            )
 
         if self.cfg.pipeline.is_enabled_step(StepName.AT) and not self.cfg.at.at_str:
             name = event.get_sender_name()

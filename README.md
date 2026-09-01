@@ -25,7 +25,6 @@ OutputPro Split 是一个 AstrBot 输出增强插件 fork。它保留 OutputPro 
 | 解析艾特 | `at` | 假 @ 转真实 @ |
 | 文本清洗 | `clean` | 清理括号、emoji、前后缀等 |
 | 文本替换 | `replace` | 敏感词或固定词替换 |
-| 错字模拟 | `typo` | 概率性同音错字，并将纠正提示作为下一条消息发送 |
 | 文转语音 | `tts` | TTS 模型或 QQ 声聊中转 |
 | 文转图片 | `t2i` | 长文本渲染成图片 |
 | 智能引用 | `reply` | 被插嘴时自动引用原消息 |
@@ -57,7 +56,7 @@ OutputPro Split 是一个 AstrBot 输出增强插件 fork。它保留 OutputPro 
 - 想避免短句被拆开，可设置 `split.min_length`。
 - 想保护超长内容不被拆，可设置 `split.max_length`。
 - 想更像 splitter 的均衡效果，保持 `split.balanced_split_mode = true`。
-- 想让错字纠正提示单独成为下一条消息，确保 `typo` 在 `split` 前执行且 `split` 已启用。
+- v2.3.6 起已移除错字模拟功能及其 `jieba`、`pypinyin` 依赖；升级后旧的 `typo` 配置不会再创建或执行步骤，请从 `pipeline.steps` 和 `pipeline.llm_steps` 中移除残留项。
 
 ## 诊断日志
 

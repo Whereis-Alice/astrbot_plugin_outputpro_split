@@ -326,13 +326,6 @@ class SplitConfig(ConfigNode):
             return None
 
 
-class TypoConfig(ConfigNode):
-    error_rate: float
-    tone_error_rate: float
-    word_replace_rate: float
-    correction_append_prob: float
-
-
 class PluginConfig(ConfigNode):
     pipeline: PipelineConfig
     summary: SummaryConfig
@@ -341,7 +334,6 @@ class PluginConfig(ConfigNode):
     at: AtConfig
     clean: CleanConfig
     replace: ReplaceConfig
-    typo: TypoConfig
     tts: TTSConfig
     t2i: T2IConfig
     reply: ReplyConfig

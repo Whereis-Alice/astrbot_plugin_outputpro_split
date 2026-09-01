@@ -421,12 +421,6 @@ class SplitStep(BaseStep):
         self._postprocess_segments(segments)
         segments = [segment for segment in segments if not segment.is_empty]
 
-        for followup_chain in ctx.followup_chains:
-            followup = Segment(list(followup_chain))
-            if not followup.is_empty:
-                segments.append(followup)
-        ctx.followup_chains.clear()
-
         if len(segments) <= 1:
             if segments:
                 ctx.chain.clear()

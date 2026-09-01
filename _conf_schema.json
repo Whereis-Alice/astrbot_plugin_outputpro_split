@@ -81,7 +81,7 @@
     },
     "summary": {
         "description": "【图片外显】",
-        "hint": "为单张图片消息插入外显金句。外显指的是：在 QQ 群列表中，原本显示“[图片]”的位置会替换为更丰富的文本（仅 aiocqhttp 平台可用）",
+        "hint": "为图片消息插入外显金句。外显指的是：在 QQ 群列表中，原本显示“[图片]”的位置会替换为更丰富的文本（仅 aiocqhttp 平台可用）。生效条件：消息链只含图片，可附带 At / AtAll / Reply 与空白文本；含可见文字时不处理。多张图片时只给第一张加外显。注意：其他插件通过主动发送接口（event.send / context.send_message）发出的图片不会经过本插件，无法附加外显；开启 pipeline.debug_logging 可在日志中查看每次跳过的具体原因",
         "type": "object",
         "items": {
             "quotes": {

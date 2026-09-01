@@ -19,7 +19,7 @@ OutputPro Split 是一个 AstrBot 输出增强插件 fork。它保留 OutputPro 
 
 | 步骤 | 配置名 | 说明 |
 | --- | --- | --- |
-| 图片外显 | `summary` | 单图消息插入外显金句 |
+| 图片外显 | `summary` | 纯图片消息插入外显金句（仅 aiocqhttp，不含可见文字时生效） |
 | 报错处理 | `error` | 拦截或转发异常消息 |
 | 消息拦截 | `block` | 超时、复读、关键词拦截 |
 | 解析艾特 | `at` | 假 @ 转真实 @ |
@@ -31,6 +31,17 @@ OutputPro Split 是一个 AstrBot 输出增强插件 fork。它保留 OutputPro 
 | 合并转发 | `forward` | 长文本转合并转发/折叠引用 |
 | 自动撤回 | `recall` | 命中关键词后延迟撤回 |
 | 分段回复 | `split` | 智能分段、组件策略和打字延迟 |
+
+### 图片外显的生效范围
+
+图片外显挂在 AstrBot 的发送前结果装饰流程上，只能处理写入 `event.result` 的消息链：
+
+- 消息链只含图片时生效，允许同时携带 At、AtAll、Reply 和纯空白文本；含可见文字时不处理。
+- 多张图片时只给第一张附加外显金句。
+- 其他插件通过 `event.send()` 或 `context.send_message()` 主动发送的图片不经过本插件，无法附加外显。例如 [`astrbot_plugin_stealer`](https://github.com/nagatoquin33/astrbot_plugin_stealer) 的表情包就是主动发送的。
+- 本插件分段回复对非末段同样使用主动发送，被分到非末段的图片也不会附加外显。
+
+开启 `pipeline.debug_logging` 后，日志会记录每次跳过外显的具体原因和当前消息链摘要。
 
 ## 分段模块优化
 

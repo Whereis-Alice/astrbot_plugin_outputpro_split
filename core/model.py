@@ -19,6 +19,8 @@ class GroupState(BaseModel):
     """最近的用户消息 ID，仅用于诊断和兼容回退判断"""
     reply_message_seq: int = 0
     """群内用户消息序号，用于跨并发回复计算插嘴数量"""
+    message_sequences: OrderedDict[str, int] = Field(default_factory=OrderedDict)
+    reply_last_sequences: OrderedDict[str, int] = Field(default_factory=OrderedDict)
     reply_handled_msg_ids: deque[str] = Field(
         default_factory=lambda: deque(maxlen=20),
     )
@@ -28,12 +30,22 @@ class GroupState(BaseModel):
 
     def record_reply_message(self, msg_id: str) -> int:
         """记录一条用户消息并返回其序号。"""
+        if msg_id and msg_id in self.message_sequences:
+            return self.message_sequences[msg_id]
         self.reply_message_seq += 1
         self.msg_queue.append(msg_id)
+        if msg_id:
+            self.message_sequences[msg_id] = self.reply_message_seq
+            if len(self.message_sequences) > 200:
+                self.message_sequences.popitem(last=False)
         return self.reply_message_seq
 
-    def mark_reply_handled(self, msg_id: str) -> bool:
+    def mark_reply_handled(self, msg_id: str, sequence: int | None = None) -> bool:
         """标记消息已引用；返回 False 表示此前已经处理过。"""
+        self.reply_last_sequences[msg_id] = self.reply_message_seq if sequence is None else sequence
+        self.reply_last_sequences.move_to_end(msg_id)
+        if len(self.reply_last_sequences) > 200:
+            self.reply_last_sequences.popitem(last=False)
         if msg_id in self.reply_handled_msg_ids:
             return False
         self.reply_handled_msg_ids.append(msg_id)
@@ -43,7 +55,14 @@ class GroupState(BaseModel):
 class StateManager:
     """内存状态管理"""
 
-    _groups: dict[str, GroupState] = {}
+    _groups: dict[str | tuple[str, str, str], GroupState] = {}
+
+    @classmethod
+    def get_event_group(cls, event: AstrMessageEvent) -> GroupState:
+        key = (str(event.get_platform_id()), str(event.get_self_id()), str(event.get_group_id()))
+        if key not in cls._groups:
+            cls._groups[key] = GroupState(gid=key[2])
+        return cls._groups[key]
 
     @classmethod
     def get_group(cls, gid: str) -> GroupState:
@@ -65,6 +84,7 @@ class OutContext:
     bid: str
     group: GroupState
     timestamp: int
+    reply_sequence: int | None = None
 
 
 

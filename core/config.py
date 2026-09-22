@@ -224,7 +224,6 @@ class SplitConfig(ConfigNode):
     clean_before_regex: str
     clean_after_regex: str
     image_strategy: str
-    at_strategy: str
     face_strategy: str
     other_media_strategy: str
 
@@ -251,7 +250,6 @@ class SplitConfig(ConfigNode):
         "clean_before_regex": "",
         "clean_after_regex": "",
         "image_strategy": "单独",
-        "at_strategy": "跟随下段",
         "face_strategy": "嵌入",
         "other_media_strategy": "跟随下段",
     }

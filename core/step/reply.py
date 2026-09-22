@@ -1,16 +1,21 @@
 from astrbot.api import logger
 from astrbot.core.message.components import (
     At,
+    AtAll,
     Face,
+    File,
     Image,
     Plain,
+    Record,
     Reply,
+    Video,
 )
 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
     AiocqhttpMessageEvent,
 )
 
 from ..config import PluginConfig
+from ..content import MentionText, has_payload
 from ..model import (
     REPLY_EVENT_SEQUENCE_EXTRA,
     OutContext,
@@ -54,7 +59,16 @@ class ReplyStep(BaseStep):
         idx = queue_ids.index(msg_id)
         return len(queue_ids) - idx - 1
 
-    async def handle(self, ctx: OutContext) -> StepResult:
+    @classmethod
+    def commit_reply(cls, ctx: OutContext) -> None:
+        msg_id = cls._message_id(ctx)
+        if ctx.reply_sequence is not None and has_payload(ctx.chain) and any(
+            isinstance(component, Reply) and str(component.id) == msg_id
+            for component in ctx.chain
+        ):
+            ctx.group.mark_reply_handled(msg_id, ctx.reply_sequence)
+
+    async def handle(self, ctx: OutContext, *, commit: bool = True) -> StepResult:
         platform_name = ctx.event.get_platform_name()
         threshold = int(self.cfg.threshold or 0)
         if threshold <= 0:
@@ -69,7 +83,14 @@ class ReplyStep(BaseStep):
             self._trace("跳过: 当前事件不是群消息, gid=%s", ctx.gid)
             return StepResult()
 
-        if not all(isinstance(x, Plain | Image | Face | At) for x in ctx.chain):
+        if not has_payload(ctx.chain):
+            self._trace("跳过: 无可见正文或媒体，不消耗引用机会")
+            return StepResult()
+
+        if any(isinstance(component, Reply) for component in ctx.chain):
+            return StepResult()
+
+        if not all(isinstance(x, (Plain, Image, Face, At, AtAll, Record, Video, File)) for x in ctx.chain):
             self._trace(
                 "跳过: 消息链包含不支持智能引用的组件, types=%s",
                 [type(item).__name__ for item in ctx.chain],
@@ -81,17 +102,17 @@ class ReplyStep(BaseStep):
             self._trace("跳过: 当前事件 message_id 为空")
             return StepResult()
 
-        if msg_id in ctx.group.reply_handled_msg_ids:
-            self._trace("跳过: 当前原消息已处理过, msg_id=%s", msg_id)
-            return StepResult()
-
         anchor_seq = ctx.event.get_extra(REPLY_EVENT_SEQUENCE_EXTRA)
+        last_reply_seq = ctx.group.reply_last_sequences.get(msg_id)
         pushed_source = "event_seq"
         if isinstance(anchor_seq, int):
-            pushed = max(0, ctx.group.reply_message_seq - anchor_seq)
+            baseline = max(anchor_seq, last_reply_seq or 0)
+            pushed = max(0, ctx.group.reply_message_seq - baseline)
         else:
             pushed_source = "queue_fallback"
             pushed = self._fallback_pushed_count(ctx.group.msg_queue, msg_id)
+            if last_reply_seq is not None:
+                pushed = max(0, ctx.group.reply_message_seq - last_reply_seq)
 
         self._trace(
             "判断: gid=%s, msg_id=%s, anchor_seq=%s, latest_seq=%s, pushed=%s, "
@@ -110,11 +131,25 @@ class ReplyStep(BaseStep):
             return StepResult()
 
         ctx.chain.insert(0, Reply(id=msg_id))
-        if self.cfg.include_at and isinstance(ctx.event, AiocqhttpMessageEvent):
+        pipeline = self.plugin_config.pipeline
+        at_config = getattr(self.plugin_config, "at", None)
+        at_managed = (
+            getattr(pipeline, "is_enabled_step", lambda name: False)(StepName.AT)
+            and (ctx.is_llm or not pipeline.is_llm_step(StepName.AT))
+            and at_config is not None
+            and at_config.at_prob > 0
+        )
+        if (
+            self.cfg.include_at
+            and not at_managed
+            and not any(isinstance(component, (At, MentionText)) for component in ctx.chain)
+            and isinstance(ctx.event, AiocqhttpMessageEvent)
+        ):
             ctx.chain.insert(1, At(qq=ctx.event.get_sender_id()))
-            # 在 At 后添加带零宽空格包裹的空格，确保与后续内容有间距
-            ctx.chain.insert(2, Plain(text="\u200b \u200b"))
-        ctx.group.mark_reply_handled(msg_id)
+            ctx.chain.insert(2, Plain(text=" "))
+        ctx.reply_sequence = ctx.group.reply_message_seq
+        if commit:
+            self.commit_reply(ctx)
         self._trace(
             "触发: gid=%s, msg_id=%s, pushed=%s, chain_types=%s",
             ctx.gid,

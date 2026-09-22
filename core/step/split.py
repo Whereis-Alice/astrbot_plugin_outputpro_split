@@ -3,12 +3,13 @@ import math
 import random
 import re
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from astrbot.api import logger
 from astrbot.api.event import MessageChain
 from astrbot.api.message_components import (
     At,
+    AtAll,
     BaseMessageComponent,
     Face,
     Image,
@@ -17,9 +18,10 @@ from astrbot.api.message_components import (
 )
 
 from ..config import PluginConfig
+from ..content import MentionText, has_payload, materialize_mentions, visible_text
 from ..model import OutContext, StepName, StepResult
 from .base import BaseStep
-
+from .reply import ReplyStep
 
 STRATEGY_ALIASES = {
     "单独": "standalone",
@@ -54,11 +56,11 @@ class Segment:
 
     @property
     def text(self) -> str:
-        return "".join(c.text for c in self.components if isinstance(c, Plain))
+        return "".join(c.text for c in self.components if isinstance(c, Plain) and not isinstance(c, MentionText))
 
     @property
     def visible_text(self) -> str:
-        return self.text.strip(" \t\r\n\u200b")
+        return visible_text(self.text)
 
     @property
     def has_media(self) -> bool:
@@ -66,7 +68,7 @@ class Segment:
 
     @property
     def is_empty(self) -> bool:
-        return not self.visible_text and not self.has_media
+        return not has_payload(self.components)
 
     def lstrip_plain(self) -> None:
         prev_is_at = False
@@ -422,19 +424,24 @@ class SplitStep(BaseStep):
         segments = [segment for segment in segments if not segment.is_empty]
 
         if len(segments) <= 1:
+            ctx.chain.clear()
             if segments:
-                ctx.chain.clear()
                 ctx.chain.extend(segments[0].components)
+                await self._refresh_reply(ctx)
             return StepResult()
 
         logger.debug("[OutputProSplit] 消息被分为 %s 段", len(segments))
 
         for idx, segment in enumerate(segments[:-1], start=1):
             try:
+                segment_ctx = replace(ctx, chain=segment.components)
+                await self._refresh_reply(segment_ctx)
+                materialize_mentions(segment.components)
                 await self.plugin_config.context.send_message(
                     ctx.event.unified_msg_origin,
                     MessageChain(segment.components),
                 )
+                ReplyStep.commit_reply(segment_ctx)
                 delay = self._calc_delay(segment.text)
                 if self.cfg.show_typing:
                     await self.typing.sleep(ctx, delay)
@@ -445,7 +452,27 @@ class SplitStep(BaseStep):
 
         ctx.chain.clear()
         ctx.chain.extend(segments[-1].components)
+        await self._refresh_reply(ctx)
         return StepResult(msg="分段完成")
+
+    async def _refresh_reply(self, ctx: OutContext) -> None:
+        pipeline = self.plugin_config.pipeline
+        if pipeline.is_enabled_step(StepName.REPLY) and (
+            ctx.is_llm or not pipeline.is_llm_step(StepName.REPLY)
+        ):
+            message_id = str(getattr(ctx.event.message_obj, "message_id", ""))
+            last_sequence = ctx.group.reply_last_sequences.get(message_id)
+            if (
+                ctx.reply_sequence is not None
+                and last_sequence is not None
+                and last_sequence >= ctx.reply_sequence
+            ):
+                ctx.chain[:] = [
+                    component for component in ctx.chain
+                    if not (isinstance(component, Reply) and str(component.id) == message_id)
+                ]
+                ctx.reply_sequence = None
+            await ReplyStep(self.plugin_config).handle(ctx, commit=False)
 
     @staticmethod
     def _get_chain_text_length(chain: list[BaseMessageComponent]) -> int:
@@ -475,6 +502,8 @@ class SplitStep(BaseStep):
                 pattern=self.cfg.clean_after_re,
             )
 
+        self._bind_prefixes(segments)
+
         if self.cfg.min_segment_length <= 0:
             return
 
@@ -489,6 +518,37 @@ class SplitStep(BaseStep):
                 segments.pop(idx)
                 continue
             idx += 1
+
+    @staticmethod
+    def _bind_prefixes(segments: list[Segment]) -> None:
+        for index, segment in enumerate(segments):
+            if segment.visible_text:
+                continue
+            prefixes = [
+                component for component in segment.components
+                if isinstance(component, (At, AtAll, MentionText))
+                or (segment.is_empty and isinstance(component, Reply))
+            ]
+            if not prefixes:
+                continue
+            text_targets = [pos for pos, item in enumerate(segments) if item.visible_text]
+            targets = text_targets or [
+                pos for pos, item in enumerate(segments) if not item.is_empty
+            ]
+            if not targets:
+                segment.components.clear()
+                continue
+            target = next((pos for pos in targets if pos > index), targets[-1])
+            if target == index:
+                continue
+            segment.components[:] = [
+                component for component in segment.components
+                if not any(component is prefix for prefix in prefixes)
+            ]
+            destination = segments[target].components
+            reply_count = 1 if destination and isinstance(destination[0], Reply) else 0
+            destination[reply_count:reply_count] = prefixes
+        segments[:] = [segment for segment in segments if not segment.is_empty]
 
     def _calc_delay(self, text: str) -> float:
         strategy = self.cfg.delay_strategy
@@ -585,8 +645,8 @@ class SplitStep(BaseStep):
     def _component_strategy(self, comp: BaseMessageComponent) -> str:
         if isinstance(comp, Reply):
             return "follow_next"
-        if isinstance(comp, At):
-            return self._normalize_strategy(self.cfg.at_strategy, "follow_next")
+        if isinstance(comp, (At, AtAll, MentionText)):
+            return "follow_next"
         if isinstance(comp, Image) and self._is_stealer_emoji_image(comp):
             return self._normalize_strategy(self.cfg.face_strategy, "inline")
         if isinstance(comp, Image):
@@ -628,6 +688,9 @@ class SplitStep(BaseStep):
         count = self.cfg.max_count if max_count is None else max_count
 
         for comp in chain:
+            if isinstance(comp, MentionText):
+                self._append_component(builder, comp)
+                continue
             if isinstance(comp, Plain):
                 text = comp.text or ""
                 if not text:

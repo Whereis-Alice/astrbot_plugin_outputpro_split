@@ -6,6 +6,7 @@ from astrbot.api import logger
 from astrbot.api.message_components import Plain
 
 from .config import PluginConfig
+from .content import has_payload, materialize_mentions
 from .model import OutContext
 from .step import (
     AtStep,
@@ -139,6 +140,11 @@ class Pipeline:
             )
 
         for step in self._steps:
+            if not has_payload(ctx.chain):
+                ctx.chain.clear()
+                if debug_logging:
+                    logger.info("[OutputProSplit][Pipeline] 跳过无正文结果，不生成空艾特或引用")
+                return False
             step_name = self._step_name(step)
             if not self._llm_allow(step, ctx.is_llm):
                 if debug_logging:
@@ -155,7 +161,10 @@ class Pipeline:
                 logger.info("[OutputProSplit][Pipeline] 执行步骤 %s", step_name)
 
             try:
-                result = await step.handle(ctx)
+                if isinstance(step, ReplyStep):
+                    result = await step.handle(ctx, commit=False)
+                else:
+                    result = await step.handle(ctx)
             except Exception:
                 logger.error(
                     "[OutputProSplit][Pipeline] 步骤 %s 执行异常",
@@ -194,6 +203,10 @@ class Pipeline:
                     )
                 return False
 
+        if not has_payload(ctx.chain):
+            ctx.chain.clear()
+        ReplyStep.commit_reply(ctx)
+        materialize_mentions(ctx.chain)
         if debug_logging:
             logger.info(
                 "[OutputProSplit][Pipeline] 完成: %s",

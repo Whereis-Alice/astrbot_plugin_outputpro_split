@@ -19,6 +19,7 @@ from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
 from ..config import PluginConfig
 from ..model import OutContext, StepName, StepResult
 from .base import BaseStep
+from .reply import ReplyStep
 
 # 这些组件不携带可见正文，出现在图片消息里也不影响外显判定
 TRANSPARENT_TYPES = (At, AtAll, Reply)
@@ -129,6 +130,12 @@ class SummaryStep(BaseStep):
         if not self.quotes:
             return self._skip("可用金句为空，请检查 summary.quotes 配置", ctx.chain)
 
+        pipeline = self.plugin_config.pipeline
+        if getattr(pipeline, "is_enabled_step", lambda name: False)(StepName.REPLY) and (
+            ctx.is_llm or not pipeline.is_llm_step(StepName.REPLY)
+        ):
+            await ReplyStep(self.plugin_config).handle(ctx, commit=False)
+
         try:
             obmsg = await ctx.event._parse_onebot_json(MessageChain(ctx.chain))
         except Exception as exc:
@@ -163,6 +170,7 @@ class SummaryStep(BaseStep):
             logger.warning("[OutputProSplit][Summary] 外显图片发送失败: %s", exc)
             return StepResult(ok=False, msg=f"图片外显发送失败，已回退默认发送: {exc}")
 
+        ReplyStep.commit_reply(ctx)
         ctx.event.should_call_llm(True)
         ctx.chain.clear()
 

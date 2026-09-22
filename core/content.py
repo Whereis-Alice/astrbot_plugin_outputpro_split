@@ -1,6 +1,17 @@
+import re
 from collections.abc import Iterable
 
 from astrbot.api.message_components import At, AtAll, BaseMessageComponent, Plain, Reply
+
+AT_HEAD_RE = re.compile(
+    r"^\s*(?:"
+    r"\[at[:：]\s*(\d+)\]"
+    r"|\[at[:：]\s*([^\]]+)\]"
+    r"|@(\d{5,12})"
+    r"|@([\u4e00-\u9fa5\w-]{2,20})"
+    r")\s*",
+    re.IGNORECASE,
+)
 
 
 class MentionText(Plain):
@@ -22,6 +33,17 @@ def has_payload(chain: Iterable[BaseMessageComponent]) -> bool:
         if not isinstance(component, Plain) or visible_text(component.text):
             return True
     return False
+
+
+def remove_mentions(chain: list[BaseMessageComponent]) -> None:
+    chain[:] = [
+        component
+        for component in chain
+        if not isinstance(component, (At, AtAll, MentionText))
+    ]
+    for component in chain:
+        if isinstance(component, Plain):
+            component.text = AT_HEAD_RE.sub("", component.text, count=1)
 
 
 def materialize_mentions(chain: list[BaseMessageComponent]) -> None:

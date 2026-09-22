@@ -15,7 +15,7 @@ from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
 )
 
 from ..config import PluginConfig
-from ..content import MentionText, has_payload
+from ..content import MentionText, has_payload, remove_mentions, visible_text
 from ..model import (
     REPLY_EVENT_SEQUENCE_EXTRA,
     OutContext,
@@ -69,6 +69,8 @@ class ReplyStep(BaseStep):
             ctx.group.mark_reply_handled(msg_id, ctx.reply_sequence)
 
     async def handle(self, ctx: OutContext, *, commit: bool = True) -> StepResult:
+        if ctx.reply_include_at is False:
+            remove_mentions(ctx.chain)
         platform_name = ctx.event.get_platform_name()
         threshold = int(self.cfg.threshold or 0)
         if threshold <= 0:
@@ -131,23 +133,33 @@ class ReplyStep(BaseStep):
             return StepResult()
 
         ctx.chain.insert(0, Reply(id=msg_id))
+        ctx.reply_include_at = bool(self.cfg.include_at)
         pipeline = self.plugin_config.pipeline
         at_config = getattr(self.plugin_config, "at", None)
-        at_managed = (
+        string_at = (
             getattr(pipeline, "is_enabled_step", lambda name: False)(StepName.AT)
             and (ctx.is_llm or not pipeline.is_llm_step(StepName.AT))
             and at_config is not None
-            and at_config.at_prob > 0
+            and at_config.at_str
         )
-        if (
-            self.cfg.include_at
-            and not at_managed
-            and not any(isinstance(component, (At, MentionText)) for component in ctx.chain)
+        if not ctx.reply_include_at:
+            remove_mentions(ctx.chain)
+        elif (
+            not any(isinstance(component, (At, MentionText)) for component in ctx.chain)
             and isinstance(ctx.event, AiocqhttpMessageEvent)
         ):
-            ctx.chain.insert(1, At(qq=ctx.event.get_sender_id()))
+            prefix = (
+                MentionText(text=f"@{ctx.event.get_sender_name()} ")
+                if string_at and any(
+                    isinstance(component, Plain) and visible_text(component.text)
+                    for component in ctx.chain
+                )
+                else At(qq=ctx.event.get_sender_id())
+            )
+            ctx.chain.insert(1, prefix)
             ctx.chain.insert(2, Plain(text=" "))
         ctx.reply_sequence = ctx.group.reply_message_seq
+        self._trace("智能引用接管艾特: include_at=%s", ctx.reply_include_at)
         if commit:
             self.commit_reply(ctx)
         self._trace(

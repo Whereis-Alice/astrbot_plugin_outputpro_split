@@ -6,7 +6,7 @@ from astrbot.api import logger
 from astrbot.api.message_components import Plain
 
 from .config import PluginConfig
-from .content import has_payload, materialize_mentions
+from .content import has_payload, materialize_mentions, remove_mentions
 from .model import OutContext
 from .step import (
     AtStep,
@@ -203,6 +203,8 @@ class Pipeline:
                     )
                 return False
 
+        if ctx.reply_include_at is False:
+            remove_mentions(ctx.chain)
         if not has_payload(ctx.chain):
             ctx.chain.clear()
         ReplyStep.commit_reply(ctx)

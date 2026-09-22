@@ -85,6 +85,7 @@ class OutContext:
     group: GroupState
     timestamp: int
     reply_sequence: int | None = None
+    reply_include_at: bool | None = None
 
 
 

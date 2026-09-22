@@ -1,11 +1,10 @@
 import random
-import re
 
 from astrbot.api import logger
 from astrbot.core.message.components import At, Face, Image, Plain, Reply
 
 from ..config import PluginConfig
-from ..content import MentionText, visible_text
+from ..content import AT_HEAD_RE, MentionText, remove_mentions, visible_text
 from ..model import OutContext, StepName, StepResult
 from .base import BaseStep
 
@@ -16,15 +15,7 @@ class AtStep(BaseStep):
     def __init__(self, config: PluginConfig):
         super().__init__(config)
         self.cfg = config.at
-        self.at_head_regex = re.compile(
-            r"^\s*(?:"
-            r"\[at[:：]\s*(\d+)\]"
-            r"|\[at[:：]\s*([^\]]+)\]"
-            r"|@(\d{5,12})"
-            r"|@([\u4e00-\u9fa5\w-]{2,20})"
-            r")\s*",
-            re.IGNORECASE,
-        )
+        self.at_head_regex = AT_HEAD_RE
 
     def _trace(self, message: str, *args) -> None:
         if getattr(self.plugin_config.pipeline, "debug_logging", False):
@@ -82,6 +73,10 @@ class AtStep(BaseStep):
             return
 
     async def handle(self, ctx: OutContext) -> StepResult:
+        if ctx.reply_include_at is False:
+            remove_mentions(ctx.chain)
+            self._trace("智能引用已触发且不带艾特，跳过概率控制")
+            return StepResult()
         has_text = any(
             isinstance(component, Plain)
             and not isinstance(component, MentionText)
@@ -93,7 +88,13 @@ class AtStep(BaseStep):
             return StepResult()
 
         self._parse_fake_at(ctx)
-        if self.cfg.at_prob > 0 and all(
+        if ctx.reply_include_at is True:
+            if not any(
+                isinstance(component, (At, MentionText)) for component in ctx.chain
+            ):
+                self._insert_at(ctx.chain, str(ctx.uid), ctx.event.get_sender_name())
+            self._trace("智能引用已触发且包含艾特，跳过概率控制")
+        elif self.cfg.at_prob > 0 and all(
             isinstance(component, (Plain, Image, Face, At, Reply))
             for component in ctx.chain
         ):

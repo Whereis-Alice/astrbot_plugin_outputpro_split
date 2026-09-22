@@ -120,6 +120,7 @@ def test_tool_empty_results_do_not_send_or_consume_quote(monkeypatch, at_str):
         event = observe(Event("anchor"))
         observe(Event("photo", chain=[Image(file="photo.jpg")]))
         config = make_config("at", "reply", "split", at_str=at_str)
+        config.reply.include_at = True
         pipeline = Pipeline(config)
         draw = Mock(return_value=0)
         monkeypatch.setattr("core.step.at.random.random", draw)
@@ -222,19 +223,43 @@ def test_legacy_zero_width_at_prefix_does_not_become_a_bubble():
 
 
 @pytest.mark.parametrize("steps", [("at", "reply"), ("reply", "at")])
-def test_reply_include_at_respects_probability_miss(monkeypatch, steps):
+@pytest.mark.parametrize("include_at", [False, True])
+@pytest.mark.parametrize("at_str", [False, True])
+def test_reply_include_at_overrides_probability(monkeypatch, steps, include_at, at_str):
     async def scenario():
         event = observe(Event("anchor"))
         observe(Event("inserted"))
-        config = make_config(*steps, at_prob=0.5)
+        config = make_config(*steps, at_prob=0.5, at_str=at_str)
         config.pipeline.lock_order = False
-        config.reply.include_at = True
+        config.reply.include_at = include_at
         monkeypatch.setattr("core.step.reply.AiocqhttpMessageEvent", Event)
-        monkeypatch.setattr("core.step.at.random.random", lambda: 0.5)
+        monkeypatch.setattr(
+            "core.step.at.random.random", lambda: 0.9 if include_at else 0.1
+        )
         ctx = make_context(event, [At(qq="42"), Plain(text="正文")])
         await Pipeline(config).run(ctx)
         assert isinstance(ctx.chain[0], Reply)
-        assert not any(isinstance(item, At) for item in ctx.chain)
+        at_count = sum(isinstance(item, At) for item in ctx.chain)
+        text = "".join(item.text for item in ctx.chain if isinstance(item, Plain))
+        assert at_count + text.count("@Alice Smith") == int(include_at)
+        assert "正文" in text
+        assert ctx.reply_include_at is include_at
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("include_at", [False, True])
+@pytest.mark.parametrize("draw, expected", [(0.1, True), (0.9, False)])
+def test_no_smart_quote_uses_probability(monkeypatch, include_at, draw, expected):
+    async def scenario():
+        ctx = make_context(observe(Event("anchor")), [Plain(text="正文")])
+        config = make_config("at", "reply", at_prob=0.5)
+        config.reply.include_at = include_at
+        monkeypatch.setattr("core.step.at.random.random", lambda: draw)
+        await Pipeline(config).run(ctx)
+        assert not any(isinstance(item, Reply) for item in ctx.chain)
+        assert any(isinstance(item, At) for item in ctx.chain) is expected
+        assert ctx.reply_include_at is None
 
     asyncio.run(scenario())
 
@@ -411,9 +436,13 @@ def test_quote_is_not_repeated_when_prefix_moves_past_image():
         event = observe(Event("anchor"))
         observe(Event("inserted"))
         config = make_config("at", "reply", "split")
-        ctx = make_context(event, [Image(file="photo.jpg"), Plain(text="正文。下一句。")])
+        ctx = make_context(
+            event, [Image(file="photo.jpg"), Plain(text="正文。下一句。")]
+        )
         await Pipeline(config).run(ctx)
-        sent = [call.args[1].chain for call in config.context.send_message.call_args_list] + [ctx.chain]
+        sent = [
+            call.args[1].chain for call in config.context.send_message.call_args_list
+        ] + [ctx.chain]
         assert sum(isinstance(item, Reply) for chain in sent for item in chain) == 1
 
     asyncio.run(scenario())
@@ -428,5 +457,68 @@ def test_failed_first_segment_does_not_consume_final_quote():
         ctx = make_context(event, [Plain(text="第一句。最后一句。")])
         await Pipeline(config).run(ctx)
         assert isinstance(ctx.chain[0], Reply)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("at_str", [False, True])
+def test_late_quote_removes_pending_mentions_in_later_segments(at_str):
+    async def scenario():
+        event = observe(Event("anchor"))
+        config = make_config("at", "split", "reply", at_str=at_str)
+        config.pipeline.lock_order = False
+        config.reply.include_at = False
+        observe(Event("inserted"))
+        ctx = make_context(
+            event, [Image(file="photo.jpg"), Plain(text="正文。下一句。")]
+        )
+        await Pipeline(config).run(ctx)
+        sent = [
+            call.args[1].chain for call in config.context.send_message.call_args_list
+        ] + [ctx.chain]
+        assert any(isinstance(item, Reply) for chain in sent for item in chain)
+        assert not any(
+            isinstance(item, (At, MentionText)) for chain in sent for item in chain
+        )
+        assert "@" not in "".join(
+            item.text for chain in sent for item in chain if isinstance(item, Plain)
+        )
+
+    asyncio.run(scenario())
+
+
+def test_quote_triggered_during_sending_beats_later_at_step(monkeypatch):
+    async def scenario():
+        event = observe(Event("anchor"))
+        config = make_config("split", "at", "reply")
+        config.pipeline.lock_order = False
+        config.reply.include_at = False
+
+        async def inserted(delay):
+            observe(Event("inserted"))
+
+        monkeypatch.setattr("core.step.split.asyncio.sleep", inserted)
+        ctx = make_context(event, [Plain(text="第一句。第二句。")])
+        await Pipeline(config).run(ctx)
+        assert isinstance(ctx.chain[0], Reply)
+        assert not any(isinstance(item, At) for item in ctx.chain)
+
+    asyncio.run(scenario())
+
+
+def test_reply_without_at_also_cleans_existing_mentions_when_at_step_disabled():
+    async def scenario():
+        event = observe(Event("anchor"))
+        observe(Event("inserted"))
+        ctx = make_context(event, [At(qq="42"), Plain(text="[at:42] 正文")])
+        config = make_config("reply")
+        config.reply.include_at = False
+        await Pipeline(config).run(ctx)
+        assert isinstance(ctx.chain[0], Reply)
+        assert not any(isinstance(item, At) for item in ctx.chain)
+        assert (
+            "".join(item.text for item in ctx.chain if isinstance(item, Plain))
+            == "正文"
+        )
 
     asyncio.run(scenario())

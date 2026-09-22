@@ -436,6 +436,7 @@ class SplitStep(BaseStep):
             try:
                 segment_ctx = replace(ctx, chain=segment.components)
                 await self._refresh_reply(segment_ctx)
+                ctx.reply_include_at = segment_ctx.reply_include_at
                 materialize_mentions(segment.components)
                 await self.plugin_config.context.send_message(
                     ctx.event.unified_msg_origin,

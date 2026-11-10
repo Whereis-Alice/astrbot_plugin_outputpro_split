@@ -8,6 +8,7 @@ from astrbot.core.platform.message_type import MessageType
 
 from ..config import PluginConfig
 from ..model import OutContext, StepName, StepResult
+from ..official import is_official
 from .base import BaseStep
 
 
@@ -43,6 +44,10 @@ class ErrorStep(BaseStep):
 
             failed = []
             for admin_id in self.admins_id:
+                if is_official(ctx.event) and str(admin_id).isdigit():
+                    logger.warning("[OutputProSplit][QQOfficial] 不能将管理员 QQ 号当成官方 OpenID；请在 error.forward_umo 配置可主动发送的目标会话")
+                    failed.append(str(admin_id))
+                    continue
                 try:
                     session = copy.copy(ctx.event.session)
                     session.session_id = admin_id
@@ -89,7 +94,8 @@ class ErrorStep(BaseStep):
             forward_msg = await self._forward_to_admin(ctx, error_report)
             msg += f"，{forward_msg}"
 
-        ctx.event.set_result(ctx.event.plain_result(self.cfg.custom_msg))
+        ctx.chain[:] = [Plain(text=self.cfg.custom_msg)] if self.cfg.custom_msg else []
+        ctx.plain = self.cfg.custom_msg or ""
         msg += f"，原消息替换为 {self.cfg.custom_msg}"
 
         return StepResult(msg=msg)

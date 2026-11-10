@@ -22,6 +22,7 @@ from ..model import (
     StepName,
     StepResult,
 )
+from ..official import is_official, mention_name, official_support
 from .base import BaseStep
 
 
@@ -67,6 +68,26 @@ class ReplyStep(BaseStep):
             for component in ctx.chain
         ):
             ctx.group.mark_reply_handled(msg_id, ctx.reply_sequence)
+
+    async def refresh(self, ctx: OutContext) -> None:
+        pipeline = self.plugin_config.pipeline
+        if not pipeline.is_enabled_step(StepName.REPLY) or (
+            not ctx.is_llm and pipeline.is_llm_step(StepName.REPLY)
+        ):
+            return
+        message_id = self._message_id(ctx)
+        last_sequence = ctx.group.reply_last_sequences.get(message_id)
+        if (
+            ctx.reply_sequence is not None
+            and last_sequence is not None
+            and last_sequence >= ctx.reply_sequence
+        ):
+            ctx.chain[:] = [
+                component for component in ctx.chain
+                if not (isinstance(component, Reply) and str(component.id) == message_id)
+            ]
+            ctx.reply_sequence = None
+        await self.handle(ctx, commit=False)
 
     async def handle(self, ctx: OutContext, *, commit: bool = True) -> StepResult:
         if ctx.reply_include_at is False:
@@ -132,6 +153,10 @@ class ReplyStep(BaseStep):
         if pushed is None or pushed < threshold:
             return StepResult()
 
+        if is_official(ctx.event) and not official_support(self.plugin_config).can_reply(ctx):
+            self._trace("QQ 官方版无可用原生引用且已关闭文字降级，不接管艾特概率")
+            return StepResult()
+
         ctx.chain.insert(0, Reply(id=msg_id))
         ctx.reply_include_at = bool(self.cfg.include_at)
         pipeline = self.plugin_config.pipeline
@@ -146,10 +171,13 @@ class ReplyStep(BaseStep):
             remove_mentions(ctx.chain)
         elif (
             not any(isinstance(component, (At, MentionText)) for component in ctx.chain)
-            and isinstance(ctx.event, AiocqhttpMessageEvent)
+            and (isinstance(ctx.event, AiocqhttpMessageEvent) or is_official(ctx.event))
         ):
+            nickname = ctx.event.get_sender_name()
+            if is_official(ctx.event):
+                nickname = mention_name(ctx.event, ctx.uid, nickname)
             prefix = (
-                MentionText(text=f"@{ctx.event.get_sender_name()} ")
+                MentionText(text=f"@{nickname} ")
                 if string_at and any(
                     isinstance(component, Plain) and visible_text(component.text)
                     for component in ctx.chain

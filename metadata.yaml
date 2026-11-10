@@ -1,7 +1,7 @@
 name: astrbot_plugin_outputpro_split
 display_name: 输出增强 Split
-desc: OutputPro fork：保留输出增强管道，并基于 astrbot_plugin_splitter 优化分段回复模块，使用独立插件标识避免与上游冲突
+desc: OutputPro fork：优化分段、引用与艾特策略，兼容 QQ 官方机器人并提供媒体安全发送与能力降级，使用独立插件标识避免与上游冲突
 help: 详见 README.md
-version: v2.3.9
+version: v2.4.0
 author: Huli3
 repo: https://github.com/Whereis-Alice/astrbot_plugin_outputpro_split

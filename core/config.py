@@ -194,6 +194,23 @@ class RecallConfig(ConfigNode):
     delay: int
 
 
+class QQOfficialConfig(ConfigNode):
+    message_format: str
+    max_text_segments: int
+    max_delay: float
+    reply_fallback: str
+
+    def __init__(self, data: MutableMapping[str, Any]):
+        for key, value in {
+            "message_format": "auto",
+            "max_text_segments": 3,
+            "max_delay": 1.0,
+            "reply_fallback": "text",
+        }.items():
+            data.setdefault(key, value)
+        super().__init__(data)
+
+
 class SplitConfig(ConfigNode):
     max_length: int
     min_length: int
@@ -338,10 +355,12 @@ class PluginConfig(ConfigNode):
     forward: ForwardConfig
     recall: RecallConfig
     split: SplitConfig
+    qq_official: QQOfficialConfig
 
     _plugin_name: str = "astrbot_plugin_outputpro_split"
 
     def __init__(self, cfg: AstrBotConfig, context: Context):
+        cfg.setdefault("qq_official", {})
         super().__init__(cfg)
         self.context = context
         self.admins_id: list[str] = context.get_config().get("admins_id", [])

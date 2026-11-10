@@ -6,6 +6,7 @@ from astrbot.core.message.components import At, Face, Image, Plain, Reply
 from ..config import PluginConfig
 from ..content import AT_HEAD_RE, MentionText, remove_mentions, visible_text
 from ..model import OutContext, StepName, StepResult
+from ..official import is_official, mention_name
 from .base import BaseStep
 
 
@@ -51,8 +52,16 @@ class AtStep(BaseStep):
             nickname = match.group(2) or match.group(4) or ""
             if not qq:
                 qq = ctx.group.name_to_qq.get(nickname)
+                if is_official(ctx.event) and nickname == str(ctx.uid):
+                    qq = str(ctx.uid)
+                    nickname = ctx.event.get_sender_name()
             if not qq and not (self.cfg.at_str and nickname):
                 self._trace("跳过无法解析的昵称: %r", nickname)
+                return
+            if is_official(ctx.event) and qq and str(qq) != str(ctx.uid) and not any(
+                str(user_id) == str(qq) for user_id in ctx.group.name_to_qq.values()
+            ):
+                self._trace("未从官方事件确认此用户标识，保留文字艾特: %r", qq)
                 return
             if not nickname:
                 nickname = next(
@@ -64,6 +73,8 @@ class AtStep(BaseStep):
                     str(qq),
                 )
             component.text = component.text[match.end() :]
+            if is_official(ctx.event):
+                nickname = mention_name(ctx.event, str(qq), nickname)
             prefix = (
                 MentionText(text=f"@{nickname} ")
                 if self.cfg.at_str
@@ -87,12 +98,15 @@ class AtStep(BaseStep):
             self._trace("跳过: 无可见正文或非群消息，不生成艾特")
             return StepResult()
 
+        nickname = ctx.event.get_sender_name()
+        if is_official(ctx.event):
+            nickname = mention_name(ctx.event, str(ctx.uid), nickname)
         self._parse_fake_at(ctx)
         if ctx.reply_include_at is True:
             if not any(
                 isinstance(component, (At, MentionText)) for component in ctx.chain
             ):
-                self._insert_at(ctx.chain, str(ctx.uid), ctx.event.get_sender_name())
+                self._insert_at(ctx.chain, str(ctx.uid), nickname)
             self._trace("智能引用已触发且包含艾特，跳过概率控制")
         elif self.cfg.at_prob > 0 and all(
             isinstance(component, (Plain, Image, Face, At, Reply))
@@ -115,7 +129,7 @@ class AtStep(BaseStep):
             if not any(
                 isinstance(component, (At, MentionText)) for component in ctx.chain
             ):
-                self._insert_at(ctx.chain, str(ctx.uid), ctx.event.get_sender_name())
+                self._insert_at(ctx.chain, str(ctx.uid), nickname)
 
         if self.cfg.at_str:
             for index, component in enumerate(ctx.chain):
@@ -128,5 +142,7 @@ class AtStep(BaseStep):
                         ),
                         str(component.qq),
                     )
+                    if is_official(ctx.event):
+                        nickname = mention_name(ctx.event, str(component.qq), nickname)
                     ctx.chain[index] = MentionText(text=f"@{nickname} ")
         return StepResult()

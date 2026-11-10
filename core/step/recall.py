@@ -1,7 +1,6 @@
 import asyncio
 
 from aiocqhttp import CQHttp
-
 from astrbot.api import logger
 from astrbot.core.message.components import (
     At,
@@ -23,6 +22,7 @@ from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
 
 from ..config import PluginConfig
 from ..model import OutContext, StepName, StepResult
+from ..official import is_official, official_support
 from .base import BaseStep
 
 
@@ -93,6 +93,11 @@ class RecallStep(BaseStep):
 
     async def handle(self, ctx: OutContext) -> StepResult:
         """对外接口：发消息并撤回"""
+        if is_official(ctx.event) and self._is_recall(ctx.chain):
+            official_support(self.plugin_config).warn_once(
+                "recall", "当前插件不支持官方版自动撤回：群聊/C2C 的已核对 SDK 没有撤回方法，频道发送也未返回可用于本插件的消息 ID。消息将正常发送；敏感内容请使用 block.block_words 在发送前拦截。"
+            )
+            return StepResult(msg="QQ 官方版自动撤回不可用，未创建撤回任务")
         if isinstance(ctx.event, AiocqhttpMessageEvent) and any(
             isinstance(
                 seg,

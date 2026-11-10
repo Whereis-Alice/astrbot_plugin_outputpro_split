@@ -59,9 +59,11 @@ class StateManager:
 
     @classmethod
     def get_event_group(cls, event: AstrMessageEvent) -> GroupState:
-        key = (str(event.get_platform_id()), str(event.get_self_id()), str(event.get_group_id()))
+        group_id = str(event.get_group_id() or "")
+        target = f"group:{group_id}" if group_id else f"private:{event.get_sender_id()}"
+        key = (str(event.get_platform_id()), str(event.get_self_id()), target)
         if key not in cls._groups:
-            cls._groups[key] = GroupState(gid=key[2])
+            cls._groups[key] = GroupState(gid=group_id)
         return cls._groups[key]
 
     @classmethod

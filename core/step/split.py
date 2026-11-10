@@ -20,6 +20,7 @@ from astrbot.api.message_components import (
 from ..config import PluginConfig
 from ..content import MentionText, has_payload, materialize_mentions, visible_text
 from ..model import OutContext, StepName, StepResult
+from ..official import OFFICIAL_PLATFORMS, is_official, official_support
 from .base import BaseStep
 from .reply import ReplyStep
 
@@ -390,7 +391,7 @@ class TypingController:
 
 class SplitStep(BaseStep):
     name = StepName.SPLIT
-    support_platforms = {"aiocqhttp", "telegram", "lark", "weixin_oc"}
+    support_platforms = {"aiocqhttp", "telegram", "lark", "weixin_oc", *OFFICIAL_PLATFORMS}
 
     def __init__(self, config: PluginConfig):
         super().__init__(config)
@@ -422,6 +423,12 @@ class SplitStep(BaseStep):
         segments = self._split_chain(ctx.chain, self.cfg.max_count)
         self._postprocess_segments(segments)
         segments = [segment for segment in segments if not segment.is_empty]
+
+        if is_official(ctx.event):
+            support = official_support(self.plugin_config)
+            chains = support.limit_segments([segment.components for segment in segments])
+            ok = await support.deliver(ctx, chains, self._calc_delay)
+            return StepResult(ok=ok, abort=not ok, msg="QQ 官方分段完成" if ok else "QQ 官方分段发送失败，已停止后续发送")
 
         if len(segments) <= 1:
             ctx.chain.clear()
@@ -457,23 +464,7 @@ class SplitStep(BaseStep):
         return StepResult(msg="分段完成")
 
     async def _refresh_reply(self, ctx: OutContext) -> None:
-        pipeline = self.plugin_config.pipeline
-        if pipeline.is_enabled_step(StepName.REPLY) and (
-            ctx.is_llm or not pipeline.is_llm_step(StepName.REPLY)
-        ):
-            message_id = str(getattr(ctx.event.message_obj, "message_id", ""))
-            last_sequence = ctx.group.reply_last_sequences.get(message_id)
-            if (
-                ctx.reply_sequence is not None
-                and last_sequence is not None
-                and last_sequence >= ctx.reply_sequence
-            ):
-                ctx.chain[:] = [
-                    component for component in ctx.chain
-                    if not (isinstance(component, Reply) and str(component.id) == message_id)
-                ]
-                ctx.reply_sequence = None
-            await ReplyStep(self.plugin_config).handle(ctx, commit=False)
+        await ReplyStep(self.plugin_config).refresh(ctx)
 
     @staticmethod
     def _get_chain_text_length(chain: list[BaseMessageComponent]) -> int:

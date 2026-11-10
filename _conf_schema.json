@@ -79,6 +79,39 @@
             }
         }
     },
+    "qq_official": {
+        "description": "【QQ 官方机器人兼容】",
+        "type": "object",
+        "hint": "仅作用于 qq_official / qq_official_webhook，不影响 OneBot。分段使用触发事件发送，保留原始回复上下文；多图和混合媒体自动拆成每条一个媒体，避免旧适配器丢失其余媒体。官方权限、回复时限和额度仍由 QQ 平台决定。其他插件主动发送及绕过结果装饰的流式消息不在本插件处理范围内。",
+        "items": {
+            "message_format": {
+                "description": "发送格式",
+                "type": "string",
+                "options": ["auto", "plain", "markdown"],
+                "default": "auto",
+                "hint": "auto 继承原结果/AstrBot 设置；plain 强制纯文本，适合没有原生 Markdown 权限的机器人；markdown 请求原生 Markdown，但不能绕过官方权限。分段继承相同设置。"
+            },
+            "max_text_segments": {
+                "description": "文本分段软上限",
+                "type": "int",
+                "default": 3,
+                "hint": "只在分段步骤生效时使用：超过此数量的尾段合并，文字不截断。0 不额外限制。多个媒体仍需逐条发送，因此最终请求数可能超过此值；这不是 QQ 官方额度，额度因场景/账号而异。"
+            },
+            "max_delay": {
+                "description": "单次分段等待上限（秒）",
+                "type": "float",
+                "default": 1.0,
+                "hint": "实际等待取分段延迟和此值的较小值，0 表示不等待，减少长延迟耗尽官方被动回复时限的风险。不模拟官方平台未提供的正在输入状态。"
+            },
+            "reply_fallback": {
+                "description": "原生引用不可用时",
+                "type": "string",
+                "options": ["text", "skip"],
+                "default": "text",
+                "hint": "新版 AstrBot 且事件提供有效 REFIDX 时使用原生引用；否则 text 在正文前附加最多 80 字的原消息摘要（不是原生引用），skip 跳过且不接管艾特概率。仅能依据官方实际推送给机器人的群消息判断插嘴，收不到的群消息无法计数。"
+            }
+        }
+    },
     "summary": {
         "description": "【图片外显】",
         "hint": "为图片消息插入外显金句。外显指的是：在 QQ 群列表中，原本显示“[图片]”的位置会替换为更丰富的文本（仅 aiocqhttp 平台可用）。生效条件：消息链只含图片，可附带 At / AtAll / Reply 与空白文本；含可见文字时不处理。多张图片时只给第一张加外显。注意：其他插件通过主动发送接口（event.send / context.send_message）发出的图片不会经过本插件，无法附加外显；开启 pipeline.debug_logging 可在日志中查看每次跳过的具体原因",
@@ -317,7 +350,7 @@
                 "description": "可选 TTS 模型",
                 "type": "string",
                 "_special": "select_provider_tts",
-                "hint": "留空表示不启用模型，改走 QQ 声聊中转；选择后优先使用该 TTS Provider 生成语音",
+                "hint": "选择后优先使用该 TTS Provider；留空时 QQ 官方群聊/C2C 优先使用当前会话选定的 TTS，其他平台沿用 QQ 声聊中转。官方频道/频道私信不支持语音时保留原文。",
                 "default": ""
             },
             "group_id": {
@@ -466,7 +499,7 @@
     },
     "forward": {
         "description": "【合并转发】",
-        "hint": "将长文本合并转发（aiocqhttp 平台为合并转发，Telegram 平台为折叠引用）",
+        "hint": "aiocqhttp 平台为合并转发，Telegram 平台为折叠引用；QQ 官方版没有原生合并转发接口，保留正文交由后续分段发送，已有转发节点展开为内容。",
         "type": "object",
         "items": {
             "threshold": {
@@ -490,7 +523,7 @@
     },
     "recall": {
         "description": "【自动撤回】",
-        "hint": "检测发出的消息是否需要撤回，并按延时执行撤回（当前支持 aiocqhttp 与 Telegram）",
+        "hint": "检测发出的消息是否需要撤回，并按延时执行撤回。当前支持 aiocqhttp 与 Telegram；QQ 官方版不创建撤回任务，命中时记录一次警告并正常发送，敏感内容请使用消息拦截在发送前阻止。",
         "type": "object",
         "items": {
             "keywords": {

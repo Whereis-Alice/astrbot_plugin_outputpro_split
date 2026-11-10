@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from astrbot.core.message.components import Plain, Record
+from astrbot.core.message.components import At, Plain, Record, Reply
 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
     AiocqhttpMessageEvent,
 )
@@ -16,7 +16,9 @@ from astrbot.core.utils.media_utils import convert_audio_format, convert_audio_t
 from astrbot.core.utils.tencent_record_helper import tencent_silk_to_wav
 
 from ..config import PluginConfig
+from ..content import MentionText, visible_text
 from ..model import OutContext, StepName, StepResult
+from ..official import is_guild, is_official
 from .base import BaseStep
 
 
@@ -39,6 +41,10 @@ class TTSStep(BaseStep):
     def _get_selected_tts_provider(self, ctx: OutContext) -> TTSProvider | None:
         provider_id = (self.cfg.tts_provider_id or "").strip()
         if not provider_id:
+            if is_official(ctx.event):
+                return self.plugin_config.context.get_using_tts_provider(
+                    umo=ctx.event.unified_msg_origin
+                )
             return None
         provider = self.plugin_config.context.get_provider_by_id(provider_id)
         if not provider:
@@ -135,20 +141,27 @@ class TTSStep(BaseStep):
             return Record.fromURL(audio_url, text=text)
 
     async def handle(self, ctx: OutContext) -> StepResult:
+        if is_official(ctx.event) and is_guild(ctx.event):
+            return StepResult(msg="QQ 官方频道/频道私信适配器不支持语音发送，保留原文")
+        if not all(isinstance(component, (Plain, At, Reply)) for component in ctx.chain):
+            return StepResult()
+        text = "".join(
+            component.text for component in ctx.chain
+            if isinstance(component, Plain) and not isinstance(component, MentionText)
+        ).strip()
         if not (
-            len(ctx.chain) == 1
-            and isinstance(ctx.chain[0], Plain)
-            and len(ctx.chain[0].text) < self.cfg.threshold
+            visible_text(text)
+            and len(text) < self.cfg.threshold
             and random.random() < self.cfg.prob
         ):
             return StepResult()
 
-        text = ctx.chain[0].text
+        prefixes = [c for c in ctx.chain if isinstance(c, (At, Reply, MentionText))]
         try:
             provider = self._get_selected_tts_provider(ctx)
             if provider:
                 audio = await provider.get_audio(text)
-                ctx.chain[:] = [self._build_record_from_audio(audio, text)]
+                ctx.chain[:] = [*prefixes, self._build_record_from_audio(audio, text)]
                 return StepResult(
                     msg=f"已使用配置的 TTS 模型将文本消息{text[:10]}转为语音"
                 )
@@ -159,7 +172,7 @@ class TTSStep(BaseStep):
                     group_id=int(self.cfg.group_id),
                     text=text,
                 )
-                ctx.chain[:] = [Record.fromURL(audio)]
+                ctx.chain[:] = [*prefixes, Record.fromURL(audio)]
                 return StepResult(msg=f"已将文本消息{text[:10]}转化为语音消息")
 
             relay_bot = self._get_qq_relay_bot()
@@ -170,6 +183,7 @@ class TTSStep(BaseStep):
                     text=text,
                 )
                 ctx.chain[:] = [
+                    *prefixes,
                     await self._build_relay_record_for_platform(
                         audio_url=audio,
                         ctx=ctx,
@@ -182,4 +196,4 @@ class TTSStep(BaseStep):
         except Exception as e:
             return StepResult(ok=False, msg=str(e))
 
-        return StepResult()
+        return StepResult(msg="没有可用的 TTS 提供商或 QQ 中转，保留原文")

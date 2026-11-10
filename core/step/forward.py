@@ -10,6 +10,7 @@ from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
 
 from ..config import PluginConfig
 from ..model import OutContext, StepName, StepResult
+from ..official import is_official
 from .base import BaseStep
 
 
@@ -178,6 +179,9 @@ class ForwardStep(BaseStep):
             and len(ctx.chain[-1].text) > self.cfg.threshold
         ):
             platform_name = ctx.event.get_platform_name()
+
+            if is_official(ctx.event):
+                return StepResult(msg="QQ 官方版不支持原生合并转发，保留正文供文转图片或分段发送")
 
             if platform_name == "aiocqhttp":
                 nodes = Nodes([])

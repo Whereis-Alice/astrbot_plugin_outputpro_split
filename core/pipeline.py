@@ -8,6 +8,7 @@ from astrbot.api.message_components import Plain
 from .config import PluginConfig
 from .content import has_payload, materialize_mentions, remove_mentions
 from .model import OutContext
+from .official import is_official, official_support
 from .step import (
     AtStep,
     BaseStep,
@@ -87,6 +88,9 @@ class Pipeline:
         """终止所有步骤"""
         for step in self._steps:
             await step.terminate()
+        support = getattr(self.plugin_config, "_official_support", None)
+        if support is not None:
+            await support.terminate()
 
     # ==================== run =====================
 
@@ -207,8 +211,12 @@ class Pipeline:
             remove_mentions(ctx.chain)
         if not has_payload(ctx.chain):
             ctx.chain.clear()
-        ReplyStep.commit_reply(ctx)
-        materialize_mentions(ctx.chain)
+        if is_official(ctx.event) and has_payload(ctx.chain):
+            if not await official_support(self.plugin_config).finalize(ctx):
+                return False
+        else:
+            ReplyStep.commit_reply(ctx)
+            materialize_mentions(ctx.chain)
         if debug_logging:
             logger.info(
                 "[OutputProSplit][Pipeline] 完成: %s",
